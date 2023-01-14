@@ -1,0 +1,144 @@
+﻿Mapper
+
+package org.myorg;
+// Importing the libraries that contain the classes and methods needed in the Mapper class
+import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.DoubleWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+public class MeanCrypMapper extends Mapper<LongWritable, Text, Text, DoubleWritable>
+
+{
+	 //volume is a large integer, it is converted to DoubleWriteable to be used in Hadoop
+    //currency is a string of characters
+	 private static DoubleWritable volume = new DoubleWritable(0);
+	 private Text currency = new Text();	
+	 @Override
+	 
+	 public void map(LongWritable key, Text value, Context context)
+			 throws IOException, InterruptedException
+			 {
+		 String[] line = value.toString().split(",");
+		 
+		//currency name is located in the 1st column
+		 String cur = line[0];
+		 
+		 currency.set(cur);
+		 
+		//volume is located in the 7th column
+		 double vol = Double.parseDouble(line[6].trim());
+		 
+		 volume.set(vol);
+		 
+		 context.write(currency, volume);
+		}
+}
+
+
+Reducer
+
+package org.myorg;
+// Importing the libraries that contain the classes and methods needed in the Reducer class
+import java.io.IOException;
+import java.util.ArrayList;
+
+import org.apache.hadoop.io.DoubleWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+public class MeanCrypReducer extends Reducer<Text, DoubleWritable, Text, DoubleWritable>
+{
+	ArrayList<Double> volumeList = new ArrayList<Double>();
+	
+	@Override
+	
+	public void reduce(Text key, Iterable<DoubleWritable> values, Context context)
+			 throws IOException, InterruptedException
+	{
+		 //create a double variable called SumofVolume and start it with 0
+		double SumofVolume=0.0;
+		
+		//The for loop will go through all the volume values passed to the reducer 
+        //from the mapper and do two things: 1) store the volume values in the 
+      //volumeList arraylist and accumulate the volume values in the
+    //variable SumofVolume that we created earlier
+		for (DoubleWritable value : values)
+		{
+			
+		volumeList.add(value.get());
+		SumofVolume = SumofVolume + value.get();
+		
+		}
+		
+		//get the number of volume values in the arraylist
+		int size = volumeList.size();
+		
+		//calculate the average volume
+		double mean = SumofVolume/size;
+		
+		//transfer each currency and the Mean Volume to the output file
+		context.write(key, new DoubleWritable(mean));
+	 }
+}
+
+
+Main Class
+
+package org.myorg;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.DoubleWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.fs.FileSystem;
+
+public class MeanCryp
+{
+ public static void main(String[] args) throws Exception
+ {
+	 Configuration conf = new Configuration();
+	 if (args.length != 3)
+	 {
+		 System.err.println("Usage: MeanDist <input path> <output path>");
+		 System.exit(-1);
+		 }
+	 Job job;
+	 job=Job.getInstance(conf, "Mean Cryp");
+	
+	 job.setJarByClass(MeanCryp.class);
+	 
+	 //the input and output paths for the job
+	 FileInputFormat.addInputPath(job, new Path(args[1]));
+	 FileOutputFormat.setOutputPath(job, new Path(args[2]));
+	 
+	//the Mean volume mapper and Mean volume reducer for the job
+	 job.setMapperClass(MeanCrypMapper.class);
+	 job.setReducerClass(MeanCrypReducer.class);
+	 
+	//output variable types are Text and Doublewriteable respectively
+	 job.setOutputKeyClass(Text.class);
+	 job.setOutputValueClass(DoubleWritable.class);
+	 
+	//delete output folder if it already exists in the HDFS from previous projects
+	 FileSystem hdfs = FileSystem.get(conf);
+	 Path outputDir = new Path(args[2]);
+	 if (hdfs.exists(outputDir))
+	 hdfs.delete(outputDir, true);
+	 
+	 //check the status of the job (completed or not) and exit when it is done
+	 System.exit(job.waitForCompletion(true) ? 0 : 1);
+   }
+
+
+
